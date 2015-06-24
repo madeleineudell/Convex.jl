@@ -12,17 +12,16 @@ export sumlargesteigs, schatten
 type SumLargestEigs <: AbstractExpr
   head::Symbol
   id_hash::Uint64
-  children::@compat Tuple{AbstractExpr}
+  children::@compat Tuple{AbstractExpr, Int}
   size::@compat Tuple{Int, Int}
 
   function SumLargestEigs(x::AbstractExpr, k::Int)
     children = (x, k)
     m,n = size(x)
-    if m==n
-      return new(:sumlargesteigs, hash(children), children, (1,1))
-    else
+    if m!=n
       error("sumlargesteigs can only be applied to a square matrix.")
     end
+    return new(:sumlargesteigs, hash(children), children, (1,1))
   end
 end
 
@@ -42,7 +41,7 @@ function evaluate(x::SumLargestEigs)
   eigvals(evaluate(x.children[1]))[end-x.children[2]:end]
 end
 
-sumlargesteigs(x::AbstractExpr) = SumLargestEigs(x)
+sumlargesteigs(x::AbstractExpr, k::Int) = SumLargestEigs(x, k)
 
 # Create the equivalent conic problem:
 #   minimize sk + Tr(Z)
@@ -69,15 +68,17 @@ function conic_form!(x::SumLargestEigs, unique_conic_forms)
 end
 
 ### eigvals, for use in computing spectral functions
+### note: NEVER EXPORT THIS. it is only convex if composed with
+### a symmetric, monotone function (like a p-norm, as in schatten)
 
 type EigAtom <: AbstractExpr
   head::Symbol
   id_hash::Uint64
-  children::@compat Tuple{AbstractExpr}
+  children::@compat Tuple{AbstractExpr, Function}
   size::@compat Tuple{Int, Int}
 
-  function EigAtom(x::AbstractExpr)
-    children = (x,)
+  function EigAtom(x::AbstractExpr, f::Function)
+    children = (x, f)
     m,n = size(x)
     if m==n
       return new(:eig, hash(children), children, (n,1))
@@ -106,12 +107,11 @@ function evaluate(x::EigAtom)
   return eigvals(evaluate(x.children[1]))
 end
 
-eigvals(x::AbstractExpr) = EigAtom(x)
-
 # Create the equivalent conic constraints:
 function conic_form!(x::EigAtom, unique_conic_forms)
   if !has_conic_form(unique_conic_forms, x)
     A = x.children[1]
+    f = x.children[2] # TODO check monotonicity and symmetry
     m, n = size(A)
     l = Variable(n)
     # monotonicity
@@ -122,10 +122,10 @@ function conic_form!(x::EigAtom, unique_conic_forms)
     end  
     # and A had better be PSD
     push!(constraints, A ⪰ 0)
-    conic_form!(constraints, unique_conic_forms)
-    cache_conic_form!(unique_conic_forms, x, l)
+    p = minimize(f(l), constraints)
+    cache_conic_form!(unique_conic_forms, x, p)
   end
   return get_conic_form(unique_conic_forms, x)
 end
 
-schatten(x::AbstractExpr, p) = norm(eigenvalues(x), p)
+schatten(x::AbstractExpr, p::Number) = EigAtom(x::AbstractExpr, x->norm(x,p))
