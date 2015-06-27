@@ -8,7 +8,14 @@ function solve!(problem::Problem,
                 warmstart=false, check_vexity=true)
 
   if warmstart
+    # use the model we used to solve the problem last time,
+    # in order to reuse cached (primal and dual) solution
     m = problem.model
+    # TODO: allow options from new model to be passed into old one 
+    # (currently this segfaults for eg SCS)
+    # m.options = s.options
+    # call setwarmstart explicitly to tell the solver to warmstart (eg, setting options if necessary)
+    MathProgBase.setwarmstart!(m, problem.solution.primal)
   else
     if isa(s, MathProgBase.AbstractMathProgSolver)
       m = MathProgBase.model(s)
@@ -24,6 +31,7 @@ function solve!(problem::Problem,
            You will have to restart Julia after that.")
     end
   end
+  problem.model = m
 
   if check_vexity
     vex = vexity(problem)
@@ -89,6 +97,21 @@ function populate_variables!(problem::Problem, var_to_ranges::Dict{Uint64, @comp
     var.value = reshape(x[start_index:end_index], sz[1], sz[2])
     if sz == (1, 1)
       var.value = var.value[1]
+    end
+  end
+end
+
+# populates the solution vector from the .value fields of variables
+# for use in warmstarting
+function populate_solution!(problem::Problem, var_to_ranges::Dict{Uint64, (Int, Int)})
+  x = problem.solution.primal
+  for (id, (start_index, end_index)) in var_to_ranges
+    var = id_to_variables[id]
+    sz = size(var.value)
+    if length(sz) <= 1
+      vx[start_index:end_index] = var.value
+    else
+      x[start_index:end_index] = reshape(var.value, sz[1]*sz[2], 1)
     end
   end
 end
