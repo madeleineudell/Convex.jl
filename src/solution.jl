@@ -22,6 +22,10 @@ function solve!(problem::Problem;
     vex = vexity(problem)
   end
 
+  # we're solving the problem
+  # minimize c'*x st b-Ax \in cones
+  # var_to_ranges maps unique ids of variables to ranges of columns of A
+  # vartypes gives the type (continous, boolean, integer, etc) of each variable
   c, A, b, cones, var_to_ranges, vartypes, conic_constraints = conic_problem(problem)
 
   # load MPB conic problem
